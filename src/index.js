@@ -29,16 +29,16 @@ class Fused extends EventEmitter {
   async mount(path) {
     await cleanup(path, true);
     await mkdir(path);
-    await fuseMount(path, {
-      getattr: this.getattr.bind(this),
-      readdir: this.readdir.bind(this),
-      create: this.create.bind(this),
-      unlink: this.unlink.bind(this),
-      open: this.open.bind(this),
-      read: this.read.bind(this),
-      write: this.write.bind(this),
-      release: this.release.bind(this),
-    });
+    await fuseMount(path, [
+      'getattr', 'readdir',
+      'create', 'unlink',
+      'open', 'read', 'write',
+      'truncate', 'ftruncate',
+      'release',
+    ].reduce((o, n) => {
+      o[n] = this[n].bind(this);
+      return o;
+    }, {}));
     process.on('exit', (code) => cleanup(path).then(() => process.reallyExit(code)));
     process.on('SIGINT', () => cleanup(path, true).then(() => process.reallyExit(0)));
     process.on('SIGTERM', () => cleanup(path).then(() => process.reallyExit(0)));
@@ -123,11 +123,11 @@ class Fused extends EventEmitter {
     const fd = 42 + Object.keys(this.paths).indexOf(path);
     if (typeof file.content === 'function') {
       file.content(null, (data) => {
-        file.cache = data ? Buffer.from(data) : null;
+        file.cache = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
         cb(0, fd);
       });
     } else {
-      file.cache = file.content ? Buffer.from(file.content) : null;
+      file.cache = file.content ? Buffer.from(file.content) : Buffer.alloc(0).fill(0);
       return cb(0, fd);
     }
   }
@@ -143,11 +143,25 @@ class Fused extends EventEmitter {
 
   write(path, fd, buffer, length, position, cb) {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[file];
-    if (!file.cache) file.cache = new Buffer();
+    const file = this.paths[path];
+    if (!file.cache) file.cache = Buffer.alloc(0);
     const part = buffer.slice(0, length);
-    part.copy(file.cache, position, 0, part.length);
-    cb(0, part.length);
+    part.copy(file.cache, position, 0, length);
+    cb(part.length);
+  }
+
+  truncate(path, len, cb) {
+    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
+    const file = this.paths[path];
+    if (!file.cache) return cb(0);
+    const buffer = Buffer.alloc(len).fill(0);
+    file.cache.copy(buffer, 0, 0, len);
+    file.cache = buffer;
+    cb(0);
+  }
+
+  ftruncate(path, fd, len, cb) {
+    return this.truncate(path, len, cb);
   }
 
   release(path, fd, cb) {
@@ -160,7 +174,7 @@ class Fused extends EventEmitter {
       });
     } else {
       file.content = file.cache.toString();
-      file.cache = null;
+      // file.cache = null;
       return cb(0);
     }
   }
@@ -170,10 +184,7 @@ module.exports = Fused;
 
 function cleanup(mountDir, force) {
   return (force ? Promise.resolve() : stat(mountDir))
-    .then(() => {
-      console.log('UNMOUNTING', mountDir); // eslint-disable-line no-console
-      return fuseUnmount(mountDir);
-    })
+    .then(() => fuseUnmount(mountDir))
     .then(() => rmdir(mountDir))
     .then(() => true)
     .catch(async(err) => {
