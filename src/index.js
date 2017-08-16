@@ -66,7 +66,8 @@ class Fused extends EventEmitter {
       cache: null,
       content: info.content,
       size() {
-        const c = this.cache || this.content;
+        // if content is a function then the size of the content of the function will become the file size :^)
+        const c = this.cache || this.content.toString();
         return c ? Buffer.byteLength(c) : 0;
       },
       mtime: info.modifiedTime || new Date(),
@@ -119,8 +120,16 @@ class Fused extends EventEmitter {
   open(path, flags, cb) {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
     const file = this.paths[path];
-    file.cache = file.content ? Buffer.from(file.content) : null;
-    cb(0);
+    const fd = 42 + Object.keys(this.paths).indexOf(path);
+    if (typeof file.content === 'function') {
+      file.content(null, (data) => {
+        file.cache = data ? Buffer.from(data) : null;
+        cb(0, fd);
+      });
+    } else {
+      file.cache = file.content ? Buffer.from(file.content) : null;
+      return cb(0, fd);
+    }
   }
 
   read(path, fd, buffer, length, position, cb) {
@@ -137,17 +146,23 @@ class Fused extends EventEmitter {
     const file = this.paths[file];
     if (!file.cache) file.cache = new Buffer();
     const part = buffer.slice(0, length);
-    part.copy(file.cache, position);
-    cb(part.length);
+    part.copy(file.cache, position, 0, part.length);
+    cb(0, part.length);
   }
 
   release(path, fd, cb) {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
     const file = this.paths[path];
     if (!file.cache) return cb(0);
-    file.content = file.cache.toString();
-    file.cache = null;
-    cb(0);
+    if (typeof file.content === 'function') {
+      file.content(file.cache.toString(), () => {
+        cb(0);
+      });
+    } else {
+      file.content = file.cache.toString();
+      file.cache = null;
+      return cb(0);
+    }
   }
 }
 
