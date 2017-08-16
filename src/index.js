@@ -144,9 +144,13 @@ class Fused extends EventEmitter {
   write(path, fd, buffer, length, position, cb) {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
     const file = this.paths[path];
-    if (!file.cache) file.cache = Buffer.alloc(0);
+    if (!file.cache) file.cache = Buffer.alloc(length).fill(0);
     const part = buffer.slice(0, length);
-    part.copy(file.cache, position, 0, length);
+    if (file.cache.length < part.length) {
+      file.cache = Buffer.from(part);
+    } else {
+      part.copy(file.cache, position, 0, length);
+    }
     cb(part.length);
   }
 
