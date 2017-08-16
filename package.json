@@ -1,0 +1,23 @@
+{
+  "name": "fused",
+  "version": "1.0.0",
+  "description": "Amazing binding for fuse",
+  "main": "src/index.js",
+  "dependencies": {
+    "fuse-bindings": "^2.11.1"
+  },
+  "devDependencies": {},
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/devsnek/fused.git"
+  },
+  "author": "snek <me@gus.host>",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/devsnek/fused/issues"
+  },
+  "homepage": "https://github.com/devsnek/fused#readme"
+}
