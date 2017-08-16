@@ -1,6 +1,6 @@
 {
   "name": "fused",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Amazing binding for fuse",
   "main": "src/index.js",
   "dependencies": {
@@ -8,7 +8,7 @@
   },
   "devDependencies": {},
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "lint": "eslint -c .eslintrc.json"
   },
   "repository": {
     "type": "git",

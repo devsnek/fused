@@ -70,9 +70,9 @@ class Fused extends EventEmitter {
         const c = this.cache || this.content.toString();
         return c ? Buffer.byteLength(c) : 0;
       },
-      mtime: info.modifiedTime || new Date(),
-      ctime: info.changedTime || new Date(),
-      atime: info.accessedTime || new Date(),
+      mtime: info.modifiedAt || new Date(),
+      ctime: info.changedAt || new Date(),
+      atime: info.accessedAt || new Date(),
       mode: new Mode(Object.assign({ type: info.type }, info.mode || {})),
     };
   }

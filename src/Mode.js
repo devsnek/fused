@@ -56,6 +56,9 @@ class Mode {
           break;
       }
     }
+
+    if (options && Reflect.has(options, 'setuid')) this.setuid = options.setuid;
+    if (options && Reflect.has(options, 'setgid')) this.setgid = options.setgid;
   }
 
   valueOf() {
