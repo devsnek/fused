@@ -1,6 +1,6 @@
 {
   "name": "fused",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Amazing binding for fuse",
   "main": "src/index.js",
   "dependencies": {
