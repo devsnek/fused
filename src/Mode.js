@@ -65,7 +65,7 @@ class Mode {
     return this.mode;
   }
 
-  toString() {
+  toString() { // eslint-disable-line complexity
     const str = [];
     // file type
     if (this.isDirectory()) {
@@ -114,9 +114,7 @@ class Mode {
 
   _checkModeProperty(property, set) {
     const mode = this.mode;
-    if (set) {
-      this.mode = (mode | S_IFMT) & property | mode & ~S_IFMT;
-    }
+    if (set) this.mode = (mode | S_IFMT) & property | mode & ~S_IFMT;
     return (mode & S_IFMT) === property;
   }
 

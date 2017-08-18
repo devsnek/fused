@@ -36,10 +36,14 @@ f.add('/dream', {
 
 f.add('/httpbin', {
   type: 'file',
-  content() {
-    return request.get('https://httpbin.org/get').then((r) => r.text);
-  },
+  content: () => request.get('https://httpbin.org/get').then((r) => r.text),
   mode,
 });
+
+f.add(/\/dynamic(\/[^/]+)?/, (path) => ({
+  type: path === '/dynamic' ? 'dir' : 'file',
+  content: `wow look content from ${path}`,
+  mode,
+}));
 
 f.mount('./mountpoint_test');

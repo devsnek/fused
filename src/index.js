@@ -11,22 +11,56 @@ const rmdir = util.promisify(fs.rmdir.bind(fs));
 const fuseMount = util.promisify(fuse.mount.bind(fuse));
 const fuseUnmount = util.promisify(fuse.unmount.bind(fuse));
 
+function check(paths, query) {
+  // separate loops because order matters
+  for (const path of paths.keys()) {
+    if (typeof path !== 'string') continue;
+    if (path === query) return paths.get(query);
+  }
+  for (const path of paths.keys()) {
+    if (!(path instanceof RegExp)) continue;
+    if (path.test(query)) {
+      const ret = paths.get(path)(query);
+      ret.temp = true;
+      return ret;
+    }
+  }
+  return null;
+}
+
+function makeInfo(options, info) {
+  return {
+    cache: null,
+    content: info.content,
+    size() {
+      const c = this.cache || this.content;
+      return typeof c === 'string' ? Buffer.byteLength(c) : options.pseudoSize || 0;
+    },
+    mtime: new Date(),
+    ctime: new Date(),
+    atime: new Date(),
+    mode: new Mode(Object.assign({ type: info.type }, info.mode || {})),
+  };
+}
+
 class Fused extends EventEmitter {
   constructor(options = {}) {
     super();
     this.options = {
       pseudoSize: options.pseudoSize || 2 << 12,
     };
-    this.paths = {
-      '/': {
-        cache: null,
-        mtime: new Date(),
-        ctime: new Date(),
-        atime: new Date(),
-        size: () => this.getChildren('/').reduce((a, b) => a + this.paths[b].size(), 0),
-        mode: new Mode(16877),
-      },
-    };
+    this.paths = new Map();
+    this.paths.set('/', {
+      cache: null,
+      mtime: new Date(),
+      ctime: new Date(),
+      atime: new Date(),
+      size: () => this.getChildren('/').reduce((a, b) => {
+        if (typeof b !== 'string') return a;
+        return a + this.paths.get(b).size();
+      }, 0),
+      mode: new Mode(16877),
+    });
   }
 
   async mount(path) {
@@ -60,29 +94,19 @@ class Fused extends EventEmitter {
   add(path, info) {
     if (Array.isArray(path)) {
       for (const item of path) this.add(item.path, item.info);
-      return;
+    } else if (path instanceof RegExp) {
+      this.paths.set(path, (p) => makeInfo(this.options, info(p)));
+    } else if (typeof path === 'string') {
+      if (path === '/') throw new Error('Cannot mount to root path');
+      path = path.replace(/\/$/, '');
+      if (check(this.paths, path)) return;
+      this.paths.set(path, makeInfo(this.options, info));
     }
-    if (path === '/') throw new Error('Cannot mount to root path');
-    path = path.replace(/\/$/, '');
-    if (Reflect.has(this.paths, path)) return;
-    const options = this.options;
-    this.paths[path] = {
-      cache: null,
-      content: info.content,
-      size() {
-        const c = this.cache || this.content;
-        return typeof c === 'string' ? Buffer.byteLength(c) : options.pseudoSize || 0;
-      },
-      mtime: info.modifiedAt || new Date(),
-      ctime: info.changedAt || new Date(),
-      atime: info.accessedAt || new Date(),
-      mode: new Mode(Object.assign({ type: info.type }, info.mode || {})),
-    };
   }
 
   getChildren(query) {
     const ret = [];
-    for (const path of Object.keys(this.paths)) {
+    for (const path of this.paths.keys()) {
       if (typeof path !== 'string') continue;
       if (path === query || !path.startsWith(query)) continue;
       const p = query === '/' ? path : path.replace(query, '');
@@ -92,8 +116,8 @@ class Fused extends EventEmitter {
   }
 
   getattr(path, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     cb(0, {
       mtime: file.mtime,
       atime: file.atime,
@@ -106,23 +130,23 @@ class Fused extends EventEmitter {
   }
 
   readdir(path, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
+    if (!check(this.paths, path)) return cb(fuse.ENOENT);
     cb(0, this.getChildren(path).map((p) => p.slice(1)));
   }
 
   create(path, flags, cb) {
-    if (Reflect.has(this.paths, path)) return cb(fuse.EEXIST);
+    if (check(this.paths, path)) return cb(fuse.EEXIST);
     cb(fuse.EPERM);
   }
 
   unlink(path, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
+    if (!check(this.paths, path)) return cb(fuse.ENOENT);
     cb(fuse.EPERM);
   }
 
   open(path, flags, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     const fd = 42 + Object.keys(this.paths).indexOf(path);
     new Promise((resolve) => {
       if (typeof file.content === 'function') {
@@ -132,14 +156,15 @@ class Fused extends EventEmitter {
         resolve(file.content);
       }
     }).then((data) => {
+      if (file.temp) this.paths.set(path, file);
       file.cache = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
       return cb(0, fd);
     });
   }
 
   read(path, fd, buffer, length, position, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     if (!file.cache) return cb(0);
     const part = file.cache.slice(position, position + length);
     part.copy(buffer, position, 0, part.length);
@@ -147,8 +172,8 @@ class Fused extends EventEmitter {
   }
 
   write(path, fd, buffer, length, position, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     if (!file.cache) file.cache = Buffer.alloc(length).fill(0);
     const part = buffer.slice(0, length);
     if (file.cache.length < part.length) {
@@ -160,8 +185,8 @@ class Fused extends EventEmitter {
   }
 
   truncate(path, len, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     if (!file.cache) return cb(0);
     const buffer = Buffer.alloc(len).fill(0);
     file.cache.copy(buffer, 0, 0, len);
@@ -174,9 +199,10 @@ class Fused extends EventEmitter {
   }
 
   release(path, fd, cb) {
-    if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
-    const file = this.paths[path];
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
     if (!file.cache) return cb(0);
+    if (file.temp) this.paths.delete(path);
     new Promise((resolve) => {
       if (typeof file.content === 'function') {
         const ret = file.content(file.cache.toString(), resolve);
