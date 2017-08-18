@@ -1,25 +1,28 @@
+const request = require('snekfetch');
 const Fused = require('../');
 
 const f = new Fused();
 
+const mode = {
+  owner: {
+    read: true,
+    write: true,
+    execute: true,
+  },
+  group: {
+    read: true,
+    execute: true,
+  },
+  others: {
+    read: true,
+    execute: true,
+  },
+};
+
 f.add('/meme', {
   type: 'file',
   content: 'lol memes',
-  mode: {
-    owner: {
-      read: true,
-      write: true,
-      execute: true,
-    },
-    group: {
-      read: true,
-      execute: true,
-    },
-    others: {
-      read: true,
-      execute: true,
-    },
-  },
+  mode,
 });
 
 f.add('/dream', {
@@ -28,21 +31,15 @@ f.add('/dream', {
   content(data, cb) {
     cb(`LOL ${Math.random()}`);
   },
-  mode: {
-    owner: {
-      read: true,
-      write: true,
-      execute: true,
-    },
-    group: {
-      read: true,
-      execute: true,
-    },
-    others: {
-      read: true,
-      execute: true,
-    },
+  mode,
+});
+
+f.add('/httpbin', {
+  type: 'file',
+  content() {
+    return request.get('https://httpbin.org/get').then((r) => r.text);
   },
-})
+  mode,
+});
 
 f.mount('./mountpoint_test');

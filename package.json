@@ -1,12 +1,14 @@
 {
   "name": "fused",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Amazing binding for fuse",
   "main": "src/index.js",
   "dependencies": {
     "fuse-bindings": "^2.11.1"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "snekfetch": "^3.2.9"
+  },
   "scripts": {
     "lint": "eslint -c .eslintrc.json"
   },

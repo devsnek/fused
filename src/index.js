@@ -12,8 +12,11 @@ const fuseMount = util.promisify(fuse.mount.bind(fuse));
 const fuseUnmount = util.promisify(fuse.unmount.bind(fuse));
 
 class Fused extends EventEmitter {
-  constructor() {
+  constructor(options = {}) {
     super();
+    this.options = {
+      pseudoSize: options.pseudoSize || 2 << 12,
+    };
     this.paths = {
       '/': {
         cache: null,
@@ -62,13 +65,13 @@ class Fused extends EventEmitter {
     if (path === '/') throw new Error('Cannot mount to root path');
     path = path.replace(/\/$/, '');
     if (Reflect.has(this.paths, path)) return;
+    const options = this.options;
     this.paths[path] = {
       cache: null,
       content: info.content,
       size() {
-        // if content is a function then the size of the content of the function will become the file size :^)
-        const c = this.cache || this.content.toString();
-        return c ? Buffer.byteLength(c) : 0;
+        const c = this.cache || this.content;
+        return typeof c === 'string' ? Buffer.byteLength(c) : options.pseudoSize || 0;
       },
       mtime: info.modifiedAt || new Date(),
       ctime: info.changedAt || new Date(),
@@ -121,15 +124,17 @@ class Fused extends EventEmitter {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
     const file = this.paths[path];
     const fd = 42 + Object.keys(this.paths).indexOf(path);
-    if (typeof file.content === 'function') {
-      file.content(null, (data) => {
-        file.cache = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
-        cb(0, fd);
-      });
-    } else {
-      file.cache = file.content ? Buffer.from(file.content) : Buffer.alloc(0).fill(0);
+    new Promise((resolve) => {
+      if (typeof file.content === 'function') {
+        const ret = file.content(null, resolve);
+        if (ret instanceof Promise) ret.then(resolve);
+      } else {
+        resolve(file.content);
+      }
+    }).then((data) => {
+      file.cache = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
       return cb(0, fd);
-    }
+    });
   }
 
   read(path, fd, buffer, length, position, cb) {
@@ -172,15 +177,15 @@ class Fused extends EventEmitter {
     if (!Reflect.has(this.paths, path)) return cb(fuse.ENOENT);
     const file = this.paths[path];
     if (!file.cache) return cb(0);
-    if (typeof file.content === 'function') {
-      file.content(file.cache.toString(), () => {
-        cb(0);
-      });
-    } else {
-      file.content = file.cache.toString();
-      // file.cache = null;
-      return cb(0);
-    }
+    new Promise((resolve) => {
+      if (typeof file.content === 'function') {
+        const ret = file.content(file.cache.toString(), resolve);
+        if (ret instanceof Promise) ret.then(resolve);
+      } else {
+        file.content = file.cache.toString();
+        resolve();
+      }
+    }).then(() => cb(0));
   }
 }
 

@@ -6,7 +6,7 @@ const Fused = require('fused');
 
 const f = new Fused();
 
-const defaultPerms = {
+const defaultMode = {
   owner: {
     read: true,
     write: true,
@@ -22,11 +22,11 @@ const defaultPerms = {
   },
 };
 
+// these options are much more powerful but more on that later
 f.add('/static', {
   type: 'file',
   content: 'some static content',
-  // mode is much more powerful than just perms but more on that later
-  mode: defaultPerms,
+  mode: defaultMode,
 });
 
 let pings = 0;
@@ -37,8 +37,18 @@ f.add('/dynamic', {
     // callback with data for read ops
     cb(`Number of pings: ${pings++}`);
   },
-  mode: defaultPerms,
-})
+  mode: defaultMode,
+});
+
+f.add('/promise', {
+  type: 'file',
+  content() {
+    return Promise.resolve('wow look it works with promises too!');
+  },
+  mode: defaultMode,
+});
+
+f.mount('./magic').then(() => console.log('Mounted!'));
 ```
 
 ```js
@@ -53,7 +63,7 @@ f.add('/dynamic', {
     group: {},
     others: {},
   },
-  setuid: Number =process.setuid,
-  setgid: Numer =process.setgid,
+  setuid: Number =process.setuid(),
+  setgid: Number =process.setgid(),
 }
 ```

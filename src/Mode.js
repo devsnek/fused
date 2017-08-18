@@ -56,9 +56,9 @@ class Mode {
           break;
       }
     }
-
-    if (options && Reflect.has(options, 'setuid')) this.setuid = options.setuid;
-    if (options && Reflect.has(options, 'setgid')) this.setgid = options.setgid;
+    const check = options && typeof options === 'object';
+    if (check && Reflect.has(options, 'setuid')) this.setuid = options.setuid;
+    if (check && Reflect.has(options, 'setgid')) this.setgid = options.setgid;
   }
 
   valueOf() {
