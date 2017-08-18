@@ -186,6 +186,15 @@ class Fused extends EventEmitter {
   }
 
   truncate(path, len, cb) {
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
+    const buffer = Buffer.alloc(len).fill(0);
+    if (len === 0) {
+      file.content = buffer.toString();
+    } else {
+      Buffer.from(file.content).copy(buffer, 0, 0, len);
+      file.content = buffer.toString();
+    }
     cb(0);
   }
 
@@ -194,8 +203,12 @@ class Fused extends EventEmitter {
     if (!file) return cb(fuse.ENOENT);
     if (!file.cache[fd]) return cb(0);
     const buffer = Buffer.alloc(len).fill(0);
-    file.cache[fd].copy(buffer, 0, 0, len);
-    file.cache[fd] = buffer;
+    if (len === 0) {
+      file.cache[fd] = buffer;
+    } else {
+      file.cache[fd].copy(buffer, 0, 0, len);
+      file.cache[fd] = buffer;
+    }
     cb(0);
   }
 
@@ -205,11 +218,12 @@ class Fused extends EventEmitter {
     if (!file.cache[fd]) return cb(0);
     if (file.temp) this.paths.delete(path);
     new Promise((resolve) => {
+      const cleaned = file.cache[fd].toString().trim().replace(/\u0000+$/, '');
       if (typeof file.content === 'function') {
-        const ret = file.content(file.cache[fd].toString(), resolve);
+        const ret = file.content(cleaned, resolve);
         if (ret instanceof Promise) ret.then(resolve);
       } else {
-        file.content = file.cache[fd].toString();
+        file.content = cleaned;
         resolve();
       }
     }).then(() => cb(0));
