@@ -30,7 +30,7 @@ function check(paths, query) {
 
 function makeInfo(options, info) {
   return {
-    cache: null,
+    cache: {},
     content: info.content,
     size() {
       const c = this.cache || this.content;
@@ -61,6 +61,7 @@ class Fused extends EventEmitter {
       }, 0),
       mode: new Mode(16877),
     });
+    this.fdOffset = 42;
   }
 
   async mount(path) {
@@ -147,7 +148,7 @@ class Fused extends EventEmitter {
   open(path, flags, cb) {
     const file = check(this.paths, path);
     if (!file) return cb(fuse.ENOENT);
-    const fd = 42 + Object.keys(this.paths).indexOf(path);
+    const fd = this.fdOffset++;
     new Promise((resolve) => {
       if (typeof file.content === 'function') {
         const ret = file.content(null, resolve);
@@ -157,7 +158,7 @@ class Fused extends EventEmitter {
       }
     }).then((data) => {
       if (file.temp) this.paths.set(path, file);
-      file.cache = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
+      file.cache[fd] = data ? Buffer.from(data) : Buffer.alloc(0).fill(0);
       return cb(0, fd);
     });
   }
@@ -165,8 +166,8 @@ class Fused extends EventEmitter {
   read(path, fd, buffer, length, position, cb) {
     const file = check(this.paths, path);
     if (!file) return cb(fuse.ENOENT);
-    if (!file.cache) return cb(0);
-    const part = file.cache.slice(position, position + length);
+    if (!file.cache[fd]) return cb(0);
+    const part = file.cache[fd].slice(position, position + length);
     part.copy(buffer, position, 0, part.length);
     cb(part.length);
   }
@@ -174,41 +175,41 @@ class Fused extends EventEmitter {
   write(path, fd, buffer, length, position, cb) {
     const file = check(this.paths, path);
     if (!file) return cb(fuse.ENOENT);
-    if (!file.cache) file.cache = Buffer.alloc(length).fill(0);
+    if (!file.cache[fd]) file.cache[fd] = Buffer.alloc(length).fill(0);
     const part = buffer.slice(0, length);
-    if (file.cache.length < part.length) {
-      file.cache = Buffer.from(part);
+    if (file.cache[fd].length < part.length) {
+      file.cache[fd] = Buffer.from(part);
     } else {
-      part.copy(file.cache, position, 0, length);
+      part.copy(file.cache[fd], position, 0, length);
     }
     cb(part.length);
   }
 
   truncate(path, len, cb) {
-    const file = check(this.paths, path);
-    if (!file) return cb(fuse.ENOENT);
-    if (!file.cache) return cb(0);
-    const buffer = Buffer.alloc(len).fill(0);
-    file.cache.copy(buffer, 0, 0, len);
-    file.cache = buffer;
     cb(0);
   }
 
   ftruncate(path, fd, len, cb) {
-    return this.truncate(path, len, cb);
+    const file = check(this.paths, path);
+    if (!file) return cb(fuse.ENOENT);
+    if (!file.cache[fd]) return cb(0);
+    const buffer = Buffer.alloc(len).fill(0);
+    file.cache[fd].copy(buffer, 0, 0, len);
+    file.cache[fd] = buffer;
+    cb(0);
   }
 
   release(path, fd, cb) {
     const file = check(this.paths, path);
     if (!file) return cb(fuse.ENOENT);
-    if (!file.cache) return cb(0);
+    if (!file.cache[fd]) return cb(0);
     if (file.temp) this.paths.delete(path);
     new Promise((resolve) => {
       if (typeof file.content === 'function') {
-        const ret = file.content(file.cache.toString(), resolve);
+        const ret = file.content(file.cache[fd].toString(), resolve);
         if (ret instanceof Promise) ret.then(resolve);
       } else {
-        file.content = file.cache.toString();
+        file.content = file.cache[fd].toString();
         resolve();
       }
     }).then(() => cb(0));
